@@ -1,6 +1,6 @@
 import arxiv
 
-QUERY = 'cat:cs.LG AND co:%28ICLR%29 AND co:2019'
+QUERY = 'cat:cs.LG AND cat:cs.CV'
 
 articles = arxiv.query(QUERY, max_results=9999)
 
