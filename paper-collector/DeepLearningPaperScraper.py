@@ -49,8 +49,9 @@ def updateArticles():
         if arti_key not in article_dict:
             article_dict[arti_key] = item[-1]
             print("Updated the dictionary.")
-            orderedArticles.append(ordered_new_artiDF[ordered_new_artiDF.loc[ordered_new_artiDF['id'] == item]], 
-                                   ignore_index=True)
+            orderedArticles = pd.concat(
+                [orderedArticles, ordered_new_artiDF[lambda ordered_new_artiDF: ordered_new_artiDF['id'] == item]], 
+                 axis=0, sort=False, ignore_index=True)
             print("Added one new article.")
             counter += 1
 
@@ -62,8 +63,9 @@ def updateArticles():
                 print("Deleted one old article.")
                 article_dict[arti_key] = item[-1]
                 print("Updated the dictionary.")
-                orderedArticles.append(ordered_new_artiDF[ordered_new_artiDF.loc[ordered_new_artiDF['id'] == item]], 
-                                       ignore_index=True)
+                orderedArticles = pd.concat(
+                    [orderedArticles, ordered_new_artiDF[lambda ordered_new_artiDF: ordered_new_artiDF['id'] == item]], 
+                    axis=0, sort=False, ignore_index=True)
                 print("Added one new article.")
                 counter += 1
 
