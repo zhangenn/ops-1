@@ -71,10 +71,7 @@ def check_existence(session, PaperTable, id_string):
     query = session.query(PaperTable).filter(
         PaperTable.c.id == id_string).all()
 
-    if len(query) > 0:
-        return True
-    else:
-        return False
+    return len(query) > 0
 
 
 def update_existing_articles(session, PaperTable, id_string, df):
