@@ -23,6 +23,7 @@ category = '%28cat:cs.LG OR cat:stat.ML OR cat:cs.AI OR cat:cs.CV%29'
 search_query = keyword + " AND " + category
 
 # max_results set to 1000
+FETCH_MAX = 1000
 
 
 def obtain_new_articles():
