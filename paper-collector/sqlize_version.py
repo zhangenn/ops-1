@@ -1,7 +1,7 @@
 
 # Import modules
 from sqlalchemy import create_engine, MetaData, Table, update
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey
 from sqlalchemy import inspect
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -10,6 +10,7 @@ from sqlalchemy.engine.url import URL
 
 import arxiv
 import pandas as pd
+from datetime import datetime
 
 # Keywords include deep learning, neural network, GPU, graphics processing unit,
 # reinforcement learning, OR perceptron
@@ -22,8 +23,15 @@ category = '%28cat:cs.LG OR cat:stat.ML OR cat:cs.AI OR cat:cs.CV%29'
 
 search_query = keyword + " AND " + category
 
-# max_results set to 1000
+# Max_results set to 1000
 FETCH_MAX = 1000
+
+# Local db url
+db_url = {'drivername': 'postgres',
+          'username': 'postgres',
+          'password': 'postgres',
+          'host': '127.0.0.1',
+          'port': 5432}
 
 
 def obtain_new_articles():
@@ -39,25 +47,36 @@ def obtain_new_articles():
     return ordered_new_articles
 
 
+def extract_category(tag_list):
+    list_of_dict = []
+    for i in range(len(tag_list)):
+        temp_list = []
+        for j in range(len(tag_list[i])):
+            temp_list.append(tag_list[i][j]['term'])
+        list_of_dict.append({'term': temp_list})
+    return list_of_dict
+
+
 def extract_column(df_file):
     # Extracting information
-    df_file['published_date'] = df_file['published'].str.extract(
-        '(\d\d\d\d-\d\d-\d\d)', expand=True)
-    df_file['published_time'] = df_file['published'].str.extract(
-        '(\d\d:\d\d:\d\d)', expand=True)
-    df_file['updated_date'] = df_file['updated'].str.extract(
-        '(\d\d\d\d-\d\d-\d\d)', expand=True)
-    df_file['updated_time'] = df_file['updated'].str.extract(
-        '(\d\d:\d\d:\d\d)', expand=True)
+    pub_list = df_file['published'].values
+    upd_list = df_file['updated'].values
+    pub_dt = pd.DataFrame({'published_datetime': [
+                    datetime.strptime(item, "%Y-%m-%dT%H:%M:%SZ") for item in pub_list]})
+    upd_dt = pd.DataFrame({'updated_datetime': [
+                    datetime.strptime(item, "%Y-%m-%dT%H:%M:%SZ") for item in upd_list]})
+    
+    tag_list = df_file['tags'].tolist() #tolist works better than values here
+    category_tags = pd.DataFrame({'category_tags': extract_category(tag_list)})
+    
     df_file['unique_id'] = df_file['id'].str.extract(
         '(\d\d\d\d\.\d\d\d\d\d)', expand=True)
     df_file['version_number'] = df_file['id'].str.extract('(\d$)', expand=True)
 
     final_df = df_file[['unique_id', 'version_number', 'author',
-                        'title', 'summary', 'arxiv_comment',
-                        'published_date', 'published_time',
-                        'updated_date', 'updated_time',
-                        'tags', 'authors']]
+                        'title', 'summary', 'arxiv_comment', 'authors']]
+    
+    final_df = pd.concat([final_df, category_tags, pub_dt, upd_dt], axis=1)
 
     final_df = final_df.drop_duplicates(subset='unique_id',
                                         keep='first', inplace=False)
@@ -79,8 +98,7 @@ def update_existing_articles(session, PaperTable, id_string, df):
         values(version=int(df.iloc[0, 1]),
                summary=df.iloc[0, 4],
                arxiv_comment=df.iloc[0, 5],
-               updated_date=df.iloc[0, 8],
-               updated_time=df.iloc[0, 9])
+               updated_datetime=df.iloc[0, 9])
 
     # Execute for transient state, commit for persistent state
     session.execute(upd)
@@ -96,16 +114,15 @@ def insert_new_articles(session, PaperTable, AuthorTable,
                                            title=df.iloc[0, 3],
                                            summary=df.iloc[0, 4],
                                            arxiv_comment=df.iloc[0, 5],
-                                           published_date=df.iloc[0, 6],
-                                           published_time=df.iloc[0, 7],
-                                           updated_date=df.iloc[0, 8],
-                                           updated_time=df.iloc[0, 9])
+                                           tags=df.iloc[0, 7],
+                                           published_datetime=df.iloc[0, 8],
+                                           updated_datetime=df.iloc[0, 9])
 
     session.execute(paper_row)
     session.commit()
 
     # Adding records into Author Table
-    authors = df.iloc[0, 11]
+    authors = df.iloc[0, 6]
     for i in range(len(authors)):
         id_str = id_string + "-" + str(i)
         author_row = AuthorTable.insert().values(id=id_str,
@@ -125,15 +142,14 @@ def insert_new_articles_initiation(session, PaperTable,
                            title=df.iloc[0, 3],
                            summary=df.iloc[0, 4],
                            arxiv_comment=df.iloc[0, 5],
-                           published_date=df.iloc[0, 6],
-                           published_time=df.iloc[0, 7],
-                           updated_date=df.iloc[0, 8],
-                           updated_time=df.iloc[0, 9])
+                           tags=df.iloc[0, 7],
+                           published_datetime=df.iloc[0, 8],
+                           updated_datetime=df.iloc[0, 9])
     session.add(paper_row)
     session.commit()
 
     # Adding records into Author Table
-    authors = df.iloc[0, 11]
+    authors = df.iloc[0, 6]
     for i in range(len(authors)):
         id_str = id_string + "-" + str(i)
         author_row = AuthorTable(id=id_str,
@@ -146,22 +162,18 @@ def insert_new_articles_initiation(session, PaperTable,
 
 
 def initiate_database():
-    new_articles = arxiv.query(search_query, max_results=9999,
+    new_articles = arxiv.query(search_query, max_results=5000,
                                sort_by="lastUpdatedDate",
                                sort_order="descending")
     new_articles_df = pd.DataFrame.from_dict(new_articles)
+    print("Successfully retrieved articles from arXiv.")
     ordered_new_articles = new_articles_df.reindex(
         columns=['title', 'author', 'authors', 'id', 'arxiv_comment',
                  'arxiv_primary_category', 'published', 'summary',
                  'tags', 'updated'])
     article_df = extract_column(ordered_new_articles)
     article_id_lst = article_df['unique_id'].values
-
-    db_url = {'drivername': 'postgres',
-              'username': 'postgres',
-              'password': 'postgres',
-              'host': '127.0.0.1',
-              'port': 5432}
+    
     engine = create_engine(URL(**db_url))
 
     # Initiate base
@@ -178,10 +190,9 @@ def initiate_database():
         title = Column(String, nullable=False)
         summary = Column(String)
         arxiv_comment = Column(String)
-        published_date = Column(String)
-        published_time = Column(String)
-        updated_date = Column(String)
-        updated_time = Column(String)
+        tags = Column(JSON)
+        published_datetime = Column(DateTime)
+        updated_datetime = Column(DateTime)
 
     class AuthorTable(Base):
         __tablename__ = 'AuthorTable'
@@ -208,12 +219,6 @@ def initiate_database():
 
 
 def main():
-    # Local db url
-    db_url = {'drivername': 'postgres',
-              'username': 'postgres',
-              'password': 'postgres',
-              'host': '127.0.0.1',
-              'port': 5432}
     engine = create_engine(URL(**db_url))
     connection = engine.connect()
     print("Existing tables:", engine.table_names())
