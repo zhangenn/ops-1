@@ -8,6 +8,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.engine.url import URL
 
+import os
 import arxiv
 import pandas as pd
 from datetime import datetime
@@ -27,11 +28,23 @@ search_query = keyword + " AND " + category
 FETCH_MAX = 1000
 
 # Local db url
+# User types in username= and password= in command line
+SQL_USER = str(os.environ.get('SQL_USER'))
+SQL_PWD = str(os.environ.get('SQL_PWD'))
+SQL_HOST = str(os.environ.get('SQL_HOST'))
+SQL_PORT = str(os.environ.get('SQL_PORT'))
+
+assert SQL_USER, 'SQL_USER is required.'
+assert SQL_PWD, 'SQL_PWD is required.'
+assert SQL_HOST, 'SQL_HOST is required.'
+assert SQL_PORT, 'SQL_PORT is required.'
+
+
 db_url = {'drivername': 'postgres',
-          'username': 'postgres',
-          'password': 'postgres',
-          'host': '127.0.0.1',
-          'port': 5432}
+          'username': SQL_USER,
+          'password': SQL_PWD,
+          'host': SQL_HOST,
+          'port': SQL_PORT}
 
 
 def obtain_new_articles():
@@ -62,20 +75,20 @@ def extract_column(df_file):
     pub_list = df_file['published'].values
     upd_list = df_file['updated'].values
     pub_dt = pd.DataFrame({'published_datetime': [
-                    datetime.strptime(item, "%Y-%m-%dT%H:%M:%SZ") for item in pub_list]})
+        datetime.strptime(item, "%Y-%m-%dT%H:%M:%SZ") for item in pub_list]})
     upd_dt = pd.DataFrame({'updated_datetime': [
-                    datetime.strptime(item, "%Y-%m-%dT%H:%M:%SZ") for item in upd_list]})
-    
-    tag_list = df_file['tags'].tolist() #tolist works better than values here
+        datetime.strptime(item, "%Y-%m-%dT%H:%M:%SZ") for item in upd_list]})
+
+    tag_list = df_file['tags'].tolist()  # tolist works better than values here
     category_tags = pd.DataFrame({'category_tags': extract_category(tag_list)})
-    
+
     df_file['unique_id'] = df_file['id'].str.extract(
         '(\d\d\d\d\.\d\d\d\d\d)', expand=True)
     df_file['version_number'] = df_file['id'].str.extract('(\d$)', expand=True)
 
     final_df = df_file[['unique_id', 'version_number', 'author',
                         'title', 'summary', 'arxiv_comment', 'authors']]
-    
+
     final_df = pd.concat([final_df, category_tags, pub_dt, upd_dt], axis=1)
 
     final_df = final_df.drop_duplicates(subset='unique_id',
@@ -173,7 +186,7 @@ def initiate_database():
                  'tags', 'updated'])
     article_df = extract_column(ordered_new_articles)
     article_id_lst = article_df['unique_id'].values
-    
+
     engine = create_engine(URL(**db_url))
 
     # Initiate base
@@ -247,9 +260,6 @@ def main():
     session = Session()
 
     article_df = extract_column(obtain_new_articles())
-    # Below for testing purpose only
-    # article_df = extract_column(pd.read_json("/Users/EmilyWang/Desktop/ops/paper-collector/DeepLearningArticles.json",
-    #                                         orient='index'))
     article_id_lst = article_df['unique_id'].values
 
     count_update = 0
