@@ -1,3 +1,5 @@
-arxiv==0.3.1
+Flask==1.0.2
+Flask-SQLAlchemy==2.3.2
 sqlalchemy==1.2.15
-pandas
+arxiv==0.3.1
+pandas==0.23.0
