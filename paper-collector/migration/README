@@ -1,0 +1,18 @@
+This is a database migration repository.
+
+More information at
+http://code.google.com/p/sqlalchemy-migrate/
+
+1. Create a change repository:
+$ migrate create my_repository "Example project"
+Note: In our case, the "migration" folder is the change repository
+
+2. Version control a database:
+$ python3 migration/manage.py version_control postgresql://postgres:postgres@localhost:5432 migration
+
+3. Retrieve a database’s current version
+$ python3 migration/manage.py version migration
+
+4. Upgrade/Downgrade the database
+$ python3 manage.py upgrade
+$ python3 manage.py downgrade <version downgrade to>
