@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, MetaData, Table, update
+from sqlalchemy import create_engine, MetaData, Table, update, func
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey
 from sqlalchemy import inspect
 from sqlalchemy.orm import sessionmaker, relationship
@@ -19,12 +19,14 @@ category = '%28cat:cs.LG OR cat:stat.ML OR cat:cs.AI OR cat:cs.CV%29'
 
 search_query = keyword + " AND " + category
 
-FETCH_MAX = 200
-
 SQL_USER = os.environ.get('SQL_USER')
 SQL_PWD = os.environ.get('SQL_PWD')
 SQL_HOST = os.environ.get('SQL_HOST')
 SQL_DB = os.environ.get('SQL_DB')
+
+START_INDEX = int(os.environ.get('START'))
+FETCH_MAX = int(os.environ.get('MAX'))
+fetch_additional = 200
 
 assert SQL_USER, 'SQL_USER is required.'
 assert SQL_PWD, 'SQL_PWD is required.'
@@ -34,6 +36,7 @@ assert SQL_DB, 'SQL_DB is required.'
 
 def obtain_new_articles():
     new_articles = arxiv.query(search_query, max_results=FETCH_MAX,
+                               start=START_INDEX,
                                sort_by="lastUpdatedDate",
                                sort_order="descending")
     new_articles_df = pd.DataFrame.from_dict(new_articles)
@@ -131,7 +134,7 @@ def insert_new_articles(session, PaperTable, AuthorTable,
         session.commit()
 
 
-def update_database(request):
+def update_database(data, context):
     engine = create_engine(URL(
         drivername='postgres+psycopg2',
         username=SQL_USER,
@@ -155,12 +158,18 @@ def update_database(request):
     Session = sessionmaker(bind=engine)
     session = Session()
 
+    latest_update = session.query(func.max(PaperTable.c.updated_datetime)).first()[0]
     article_df = extract_column(obtain_new_articles())
+    while latest_update < article_df['updated_datetime'].min():
+        global FETCH_MAX
+        FETCH_MAX += fetch_additional
+        article_df = extract_column(obtain_new_articles())
+        print(f"Fetch #: {FETCH_MAX}")
+
     article_id_lst = article_df['unique_id'].values
 
     count_update = 0
     count_insert = 0
-    count_total = 0
 
     for id_string in article_id_lst:
         row_df = article_df[article_df['unique_id'] == id_string]
@@ -182,5 +191,5 @@ def update_database(request):
     return f"Completed: Inserted {count_insert} new articles, updated {count_update} existing articles."
 
 if __name__ == '__main__':
-    r = update_database(None)
+    r = update_database(None, None)
     print(r)
