@@ -10,6 +10,7 @@ import os
 import arxiv
 import pandas as pd
 from datetime import datetime
+from tables import PaperTable, AuthorTable
 
 keyword = '%28%22deep learning%22 OR %22neural network%22 \
             OR %22GPU%22 OR %22graphics processing unit%22 \
@@ -87,14 +88,14 @@ def extract_column(df_file):
     return final_df
 
 
-def check_existence(session, PaperTable, id_string):
+def check_existence(session, id_string):
     query = session.query(PaperTable).filter(
         PaperTable.c.id == id_string).all()
 
     return len(query) > 0
 
 
-def update_existing_articles(session, PaperTable, id_string, df):
+def update_existing_articles(session, id_string, df):
     upd = update(PaperTable).where(PaperTable.c.id == id_string).\
         values(version=int(df.iloc[0, 1]),
                summary=df.iloc[0, 4],
@@ -106,8 +107,7 @@ def update_existing_articles(session, PaperTable, id_string, df):
     session.commit()
 
 
-def insert_new_articles(session, PaperTable, AuthorTable,
-                        id_string, df):
+def insert_new_articles(session, id_string, df):
     # Adding records into Paper Table
     paper_row = PaperTable.insert().values(id=id_string,
                                            version=int(df.iloc[0, 1]),
@@ -134,6 +134,66 @@ def insert_new_articles(session, PaperTable, AuthorTable,
         session.commit()
 
 
+def insert_new_articles_initiation(session, id_string, df):
+    paper_row = PaperTable(id=id_string,
+                           version=int(df.iloc[0, 1]),
+                           author=df.iloc[0, 2],
+                           title=df.iloc[0, 3],
+                           summary=df.iloc[0, 4],
+                           arxiv_comment=df.iloc[0, 5],
+                           tags=df.iloc[0, 7],
+                           published_datetime=df.iloc[0, 8],
+                           updated_datetime=df.iloc[0, 9])
+    session.add(paper_row)
+    session.commit()
+
+    authors = df.iloc[0, 6]
+    for i in range(len(authors)):
+        id_str = id_string + "-" + str(i)
+        author_row = AuthorTable(id=id_str,
+                                 author=authors[i],
+                                 author_entry=paper_row)
+        session.add(author_row)
+        session.commit()
+
+
+def initiate_database(request):
+    new_articles = arxiv.query(search_query, max_results=FETCH_MAX,
+                               sort_by="lastUpdatedDate",
+                               sort_order="descending")
+    new_articles_df = pd.DataFrame.from_dict(new_articles)
+    print("Successfully retrieved articles from arXiv.")
+    ordered_new_articles = new_articles_df.reindex(
+        columns=['title', 'author', 'authors', 'id', 'arxiv_comment',
+                 'arxiv_primary_category', 'published', 'summary',
+                 'tags', 'updated'])
+    article_df = extract_column(ordered_new_articles)
+    article_id_lst = article_df['unique_id'].values
+
+    engine = create_engine(URL(
+        drivername='postgres+psycopg2',
+        username=SQL_USER,
+        password=SQL_PWD,
+        database=SQL_DB,
+        query={'host': SQL_HOST}))
+
+    Base = declarative_base()
+
+    Base.metadata.create_all(bind=engine)
+
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    count_insert = 0
+    for id_string in article_id_lst:
+        row_df = article_df[article_df['unique_id'] == id_string]
+        insert_new_articles_initiation(session, id_string, row_df)
+        count_insert += 1
+
+    session.close()
+    return f'Completed: Inserted {count_insert} new articles.'
+
+
 def update_database(data, context):
     engine = create_engine(URL(
         drivername='postgres+psycopg2',
@@ -158,7 +218,8 @@ def update_database(data, context):
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    latest_update = session.query(func.max(PaperTable.c.updated_datetime)).first()[0]
+    latest_update = session.query(
+        func.max(PaperTable.c.updated_datetime)).first()[0]
     article_df = extract_column(obtain_new_articles())
     while latest_update < article_df['updated_datetime'].min():
         global FETCH_MAX
@@ -174,21 +235,20 @@ def update_database(data, context):
     for id_string in article_id_lst:
         row_df = article_df[article_df['unique_id'] == id_string]
 
-        if check_existence(session, PaperTable, id_string):
+        if check_existence(session, id_string):
             exist_version = session.query(PaperTable.c.version).\
                 filter(PaperTable.c.id == id_string).one()
             if int(article_df.iloc[0, 1]) > exist_version[0]:
-                update_existing_articles(session,
-                                         PaperTable, id_string, row_df)
+                update_existing_articles(session, id_string, row_df)
                 count_update += 1
 
         else:
-            insert_new_articles(session, PaperTable, AuthorTable,
-                                id_string, row_df)
+            insert_new_articles(session, id_string, row_df)
             count_insert += 1
-    
+
     session.close()
     return f"Completed: Inserted {count_insert} new articles, updated {count_update} existing articles."
+
 
 if __name__ == '__main__':
     r = update_database(None, None)
