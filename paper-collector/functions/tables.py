@@ -1,8 +1,20 @@
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey
+from sqlalchemy import create_engine, MetaData, Table, update
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
+from constants import *
+from sqlalchemy.engine.url import URL
+
+
+engine = create_engine(URL(
+    drivername='postgres+psycopg2',
+    username=SQL_USER,
+    password=SQL_PWD,
+    database=SQL_DB,
+    query={'host': SQL_HOST}))
 
 Base = declarative_base()
+Base.metadata.create_all(bind=engine)
 
 
 class PaperTable(Base):

@@ -5,12 +5,13 @@ from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.engine.url import URL
+from constants import *
 
 import os
 import arxiv
 import pandas as pd
 from datetime import datetime
-from tables import PaperTable, AuthorTable
+from tables import PaperTable, AuthorTable, engine
 
 keyword = '%28%22deep learning%22 OR %22neural network%22 \
             OR %22GPU%22 OR %22graphics processing unit%22 \
@@ -19,20 +20,6 @@ keyword = '%28%22deep learning%22 OR %22neural network%22 \
 category = '%28cat:cs.LG OR cat:stat.ML OR cat:cs.AI OR cat:cs.CV%29'
 
 search_query = keyword + " AND " + category
-
-SQL_USER = os.environ.get('SQL_USER')
-SQL_PWD = os.environ.get('SQL_PWD')
-SQL_HOST = os.environ.get('SQL_HOST')
-SQL_DB = os.environ.get('SQL_DB')
-
-START_INDEX = int(os.environ.get('START'))
-FETCH_MAX = int(os.environ.get('MAX'))
-fetch_additional = 200
-
-assert SQL_USER, 'SQL_USER is required.'
-assert SQL_PWD, 'SQL_PWD is required.'
-assert SQL_HOST, 'SQL_HOST is required.'
-assert SQL_DB, 'SQL_DB is required.'
 
 
 def obtain_new_articles():
@@ -170,17 +157,6 @@ def initiate_database(request):
     article_df = extract_column(ordered_new_articles)
     article_id_lst = article_df['unique_id'].values
 
-    engine = create_engine(URL(
-        drivername='postgres+psycopg2',
-        username=SQL_USER,
-        password=SQL_PWD,
-        database=SQL_DB,
-        query={'host': SQL_HOST}))
-
-    Base = declarative_base()
-
-    Base.metadata.create_all(bind=engine)
-
     Session = sessionmaker(bind=engine)
     session = Session()
 
@@ -195,19 +171,11 @@ def initiate_database(request):
 
 
 def update_database(data, context):
-    engine = create_engine(URL(
-        drivername='postgres+psycopg2',
-        username=SQL_USER,
-        password=SQL_PWD,
-        database=SQL_DB,
-        query={'host': SQL_HOST}))
     connection = engine.connect()
     print("Existing tables:", engine.table_names())
 
     # reflect the tables
     metadata = MetaData()
-    Base = automap_base(metadata=metadata)
-    Base.prepare(engine, reflect=True)
 
     # Mapped classes with names matching that of the table name
     PaperTable = Table('PaperTable', metadata, autoload=True,
@@ -221,11 +189,11 @@ def update_database(data, context):
     latest_update = session.query(
         func.max(PaperTable.c.updated_datetime)).first()[0]
     article_df = extract_column(obtain_new_articles())
+    fetch_total = FETCH_MAX
     while latest_update < article_df['updated_datetime'].min():
-        global FETCH_MAX
-        FETCH_MAX += fetch_additional
+        fetch_total += FETCH_ADDITIONAL
         article_df = extract_column(obtain_new_articles())
-        print(f"Fetch #: {FETCH_MAX}")
+        print(f"Fetch #: {fetch_total}")
 
     article_id_lst = article_df['unique_id'].values
 
@@ -248,8 +216,3 @@ def update_database(data, context):
 
     session.close()
     return f"Completed: Inserted {count_insert} new articles, updated {count_update} existing articles."
-
-
-if __name__ == '__main__':
-    r = update_database(None, None)
-    print(r)
